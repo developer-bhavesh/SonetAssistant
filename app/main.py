@@ -7,8 +7,8 @@ import logging
 from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import Qt
 from app.config import Config
-from app.services import AIClient, PromptEngine, ChatStateManager
-from app.ui import MainWindow
+from app.services import AIClient, PromptEngine, ChatStateManager, WebSearchService, DatabaseService
+from app.ui.modern_window import ModernMainWindow as MainWindow
 
 def setup_logging():
     """Configure application logging."""
@@ -55,12 +55,16 @@ def main():
         ai_client = AIClient()
         prompt_engine = PromptEngine()
         state_manager = ChatStateManager()
+        web_search = WebSearchService()
+        database = DatabaseService()
         
         # Create main window with injected dependencies
         window = MainWindow(
             ai_client=ai_client,
             prompt_engine=prompt_engine,
-            state_manager=state_manager
+            state_manager=state_manager,
+            web_search=web_search,
+            database=database
         )
         
         window.show()

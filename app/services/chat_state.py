@@ -20,6 +20,8 @@ class ChatStateManager(QObject):
     def __init__(self):
         super().__init__()
         self.current_session = self._create_new_session()
+        self.search_context = None
+        self.source_urls = []
     
     def _create_new_session(self) -> ChatSession:
         """Create a new chat session."""
@@ -37,6 +39,14 @@ class ChatStateManager(QObject):
         )
         self.current_session.messages.append(message)
         self.current_session.updated_at = datetime.now()
+        
+        # Auto-generate session title from first user message
+        if role == MessageRole.USER and self.current_session.title == "New Conversation":
+            # Extract meaningful title from query (first 50 chars)
+            title = content.replace('/search ', '').strip()
+            title = title[:50] + '...' if len(title) > 50 else title
+            self.current_session.title = title
+        
         self.message_added.emit(message)
         return message
     
@@ -47,7 +57,19 @@ class ChatStateManager(QObject):
     def clear_conversation(self):
         """Clear current conversation."""
         self.current_session = self._create_new_session()
+        self.search_context = None
+        self.source_urls = []
         self.state_cleared.emit()
+    
+    def set_search_context(self, context: str, urls: list[str]):
+        """Set search context for next AI request."""
+        self.search_context = context
+        self.source_urls = urls
+    
+    def clear_search_context(self):
+        """Clear search context after AI response."""
+        self.search_context = None
+        self.source_urls = []
     
     def get_current_session(self) -> ChatSession:
         """Get current session."""

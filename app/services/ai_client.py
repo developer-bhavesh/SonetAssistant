@@ -109,7 +109,6 @@ class AIClient(QObject):
         self.current_worker = AIWorker(self.backend, messages)
         self.current_worker.response_ready.connect(self.response_received.emit)
         self.current_worker.error_occurred.connect(self.error_occurred.emit)
-        self.current_worker.finished.connect(self.current_worker.deleteLater)
         self.current_worker.start()
     
     def cancel_request(self):

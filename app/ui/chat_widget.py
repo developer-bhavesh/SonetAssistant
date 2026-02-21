@@ -95,6 +95,7 @@ class ChatWidget(QWidget):
         self.send_button.setIcon(qta.icon('fa5s.paper-plane', color='#ECF0F1'))
         self.send_button.setFixedSize(48, 48)
         self.send_button.setCursor(Qt.PointingHandCursor)
+        self.send_button.setToolTip("Send message (Enter)")
         self.send_button.setStyleSheet("""
             QPushButton {
                 background-color: #4A9EFF;
@@ -124,6 +125,7 @@ class ChatWidget(QWidget):
         if text:
             self.message_sent.emit(text)
             self.input_field.clear()
+            self.input_field.setFocus()
     
     def add_message(self, message: Message):
         """Add message bubble to chat."""

@@ -3,15 +3,16 @@ Main application window.
 """
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QMenuBar, 
-    QMenu, QMessageBox, QStatusBar
+    QMenu, QMessageBox, QStatusBar, QHBoxLayout, QSplitter
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QIcon, QAction
 import qtawesome as qta
 from app.config import Config
 from app.ui.chat_widget import ChatWidget
-from app.services import AIClient, PromptEngine, ChatStateManager
-from app.models import MessageRole
+from app.ui.session_sidebar import SessionSidebar
+from app.services import AIClient, PromptEngine, ChatStateManager, WebSearchService, DatabaseService
+from app.models import MessageRole, Message
 
 class MainWindow(QMainWindow):
     """
@@ -23,16 +24,21 @@ class MainWindow(QMainWindow):
         self,
         ai_client: AIClient,
         prompt_engine: PromptEngine,
-        state_manager: ChatStateManager
+        state_manager: ChatStateManager,
+        web_search: WebSearchService,
+        database: DatabaseService
     ):
         super().__init__()
         self.ai_client = ai_client
         self.prompt_engine = prompt_engine
         self.state_manager = state_manager
+        self.web_search = web_search
+        self.database = database
         
         self._setup_window()
         self._setup_ui()
         self._connect_signals()
+        self._load_sessions()
     
     def _setup_window(self):
         """Configure main window properties."""
@@ -86,9 +92,27 @@ class MainWindow(QMainWindow):
         # Menu bar
         self._create_menu_bar()
         
-        # Central widget
+        # Central widget with splitter
+        central = QWidget()
+        layout = QHBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        splitter = QSplitter(Qt.Horizontal)
+        
+        # Session sidebar
+        self.sidebar = SessionSidebar()
+        splitter.addWidget(self.sidebar)
+        
+        # Chat widget
         self.chat_widget = ChatWidget()
-        self.setCentralWidget(self.chat_widget)
+        splitter.addWidget(self.chat_widget)
+        
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        
+        layout.addWidget(splitter)
+        self.setCentralWidget(central)
         
         # Status bar
         self.status_bar = QStatusBar()
@@ -134,18 +158,64 @@ class MainWindow(QMainWindow):
         # State manager signals
         self.state_manager.message_added.connect(self._on_message_added)
         self.state_manager.state_cleared.connect(self._on_state_cleared)
+        
+        # Sidebar signals
+        self.sidebar.session_selected.connect(self._on_session_selected)
+        self.sidebar.new_session_requested.connect(self._on_new_chat)
+        self.sidebar.session_deleted.connect(self._on_session_deleted)
     
     def _on_message_sent(self, text: str):
         """Handle user message sent."""
-        # Add user message to state
+        # Intelligent search detection
+        search_keywords = ['how to', 'what is', 'explain', 'tutorial', 'guide', 'best way', 'latest']
+        needs_search = any(keyword in text.lower() for keyword in search_keywords)
+        
+        # Explicit search command
+        if text.startswith('/search '):
+            query = text[8:].strip()
+            if query:
+                self._handle_search(query)
+            return
+        
+        # Auto-search for questions
+        if needs_search and '?' in text:
+            self._handle_search(text)
+            return
+        
+        # Normal chat
         self.state_manager.add_message(MessageRole.USER, text)
+        conversation = self.state_manager.get_conversation_history()
+        messages = self.prompt_engine.build_messages(conversation)
+        self.ai_client.send_message(messages)
+    
+    def _handle_search(self, query: str):
+        """Handle web search command."""
+        self._update_status(f"Searching: {query}...")
+        
+        # Perform search with content extraction
+        results, source_urls = self.web_search.search(query)
+        
+        # Store search context
+        self.state_manager.set_search_context(results, source_urls)
+        
+        # Add user query
+        self.state_manager.add_message(MessageRole.USER, query)
         
         # Build messages with system prompt
         conversation = self.state_manager.get_conversation_history()
         messages = self.prompt_engine.build_messages(conversation)
         
+        # Add search context as a separate user message (AI will see this as additional context)
+        if self.state_manager.search_context:
+            search_context_msg = Message(
+                role=MessageRole.USER,
+                content=self.state_manager.search_context
+            )
+            messages.append(search_context_msg)
+        
         # Send to AI
         self.ai_client.send_message(messages)
+        self._update_status("Waiting for AI response...")
     
     def _on_request_started(self):
         """Handle AI request started."""
@@ -158,8 +228,27 @@ class MainWindow(QMainWindow):
         self.chat_widget.hide_loading()
         self.chat_widget.set_input_enabled(True)
         
+        # Add compact source links at bottom
+        if self.state_manager.source_urls:
+            response += "\n\n---\n📚 **Sources:** "
+            source_links = []
+            for url in self.state_manager.source_urls:
+                # Extract domain name
+                try:
+                    domain = url.split('/')[2].replace('www.', '')
+                    source_links.append(f"[{domain}]({url})")
+                except:
+                    source_links.append(f"[link]({url})")
+            response += " • ".join(source_links)
+        
         # Add assistant message to state
         self.state_manager.add_message(MessageRole.ASSISTANT, response)
+        
+        # Clear search context after response
+        self.state_manager.clear_search_context()
+        
+        # Auto-save session
+        self._save_current_session()
         
         self._update_status("Ready")
     
@@ -180,7 +269,40 @@ class MainWindow(QMainWindow):
     def _on_state_cleared(self):
         """Handle state cleared."""
         self.chat_widget.clear_messages()
+        self._save_current_session()
         self._update_status("New conversation started")
+    
+    def _load_sessions(self):
+        """Load sessions from database."""
+        sessions = self.database.list_sessions()
+        self.sidebar.update_sessions(sessions)
+    
+    def _save_current_session(self):
+        """Save current session to database."""
+        session = self.state_manager.get_current_session()
+        if session.messages:  # Only save if has messages
+            self.database.save_session(session)
+            self._load_sessions()
+    
+    def _on_session_selected(self, session_id: str):
+        """Handle session selection."""
+        # Save current session first
+        self._save_current_session()
+        
+        # Load selected session
+        session = self.database.load_session(session_id)
+        if session:
+            self.state_manager.current_session = session
+            self.chat_widget.clear_messages()
+            for msg in session.messages:
+                if msg.role in (MessageRole.USER, MessageRole.ASSISTANT):
+                    self.chat_widget.add_message(msg)
+            self._update_status(f"Loaded: {session.title}")
+    
+    def _on_session_deleted(self, session_id: str):
+        """Handle session deletion."""
+        self.database.delete_session(session_id)
+        self._update_status("Session deleted")
     
     def _on_new_chat(self):
         """Handle new chat action."""
