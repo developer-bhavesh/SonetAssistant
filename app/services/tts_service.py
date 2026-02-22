@@ -24,8 +24,8 @@ class TTSWorker(QRunnable):
         self.model_path = model_path
         self.config_path = config_path
         self.volume = volume
-        self.length_scale = 0.90  # Slightly faster for Indian English rhythm
-        self.noise_scale = 0.75   # More expressive
+        self.length_scale = 1.0   # Normal speed for clarity
+        self.noise_scale = 0.667  # Natural expressiveness
         self.signals = self.Signals()
         self.setAutoDelete(True)
     
@@ -52,24 +52,19 @@ class TTSWorker(QRunnable):
             process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 text=True
             )
             
-            stdout, stderr = process.communicate(input=self.text, timeout=30)
+            _, stderr = process.communicate(input=self.text, timeout=60)
             
             if process.returncode != 0:
                 raise RuntimeError(f"Piper failed: {stderr}")
             
-            # Play audio with volume control
-            play_cmd = ['aplay', '-D', 'default', output_path]
-            
-            # Set volume using amixer
-            subprocess.run(['amixer', 'set', 'Master', f'{int(self.volume * 100)}%'], 
-                         check=False, capture_output=True)
-            
-            subprocess.run(play_cmd, check=True, capture_output=True, timeout=60)
+            # Play audio
+            subprocess.run(['aplay', '-q', output_path], 
+                         check=True, capture_output=True, timeout=120)
             
             # Cleanup
             Path(output_path).unlink(missing_ok=True)

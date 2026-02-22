@@ -114,7 +114,7 @@ class MessageBubble(QWidget):
     
     def _render_content(self, layout: QVBoxLayout):
         """Parse and render content with code blocks."""
-        content = self.message.content
+        content = self._clean_content(self.message.content)
         
         # Extract code blocks
         code_pattern = r'```(\w*)\n(.*?)```'
@@ -184,6 +184,12 @@ class MessageBubble(QWidget):
             MessageRole.ASSISTANT: "color: #50C878;",
             MessageRole.SYSTEM: "color: #FFA500;"
         }.get(self.message.role, "color: #FFFFFF;")
+    
+    def _clean_content(self, content: str) -> str:
+        """Remove tool results and debug info from content."""
+        # Remove everything after --- TOOL RESULTS ---
+        content = re.sub(r'---\s*TOOL RESULTS\s*---[\s\S]*$', '', content)
+        return content.strip()
     
     def _get_bubble_style(self) -> str:
         """Get bubble background style."""
