@@ -7,7 +7,7 @@ import logging
 from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import Qt
 from app.config import Config
-from app.services import AIClient, PromptEngine, ChatStateManager, WebSearchService, DatabaseService
+from app.services import AIClient, PromptEngine, ChatStateManager, WebSearchService, DatabaseService, UserMemoryService, AIWebScraperService, TTSService
 from app.ui.modern_window import ModernMainWindow as MainWindow
 
 def setup_logging():
@@ -52,8 +52,17 @@ def main():
     
     try:
         # Initialize services (dependency injection)
+        user_memory = UserMemoryService()
+        ai_scraper = AIWebScraperService()
+        tts_service = TTSService(
+            model_path=Config.TTS_MODEL,
+            config_path=Config.TTS_CONFIG,
+            enabled=Config.TTS_ENABLED
+        )
+        tts_service.set_volume(Config.TTS_VOLUME)
+        
         ai_client = AIClient()
-        prompt_engine = PromptEngine()
+        prompt_engine = PromptEngine(user_memory=user_memory, ai_scraper=ai_scraper)
         state_manager = ChatStateManager()
         web_search = WebSearchService()
         database = DatabaseService()
@@ -64,7 +73,10 @@ def main():
             prompt_engine=prompt_engine,
             state_manager=state_manager,
             web_search=web_search,
-            database=database
+            database=database,
+            user_memory=user_memory,
+            ai_scraper=ai_scraper,
+            tts_service=tts_service
         )
         
         window.show()

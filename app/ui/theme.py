@@ -36,34 +36,7 @@ class Theme:
     warning: str
     error: str
 
-# Dark theme (default)
-DARK_THEME = Theme(
-    bg_primary="#0D0D0D",
-    bg_secondary="#1A1A1A",
-    bg_tertiary="#2A2A2A",
-    bg_input="#2F2F2F",
-    bg_hover="#3A3A3A",
-    
-    text_primary="#ECECEC",
-    text_secondary="#B4B4B4",
-    text_tertiary="#8E8E8E",
-    
-    accent_primary="#10A37F",
-    accent_hover="#1A9B7F",
-    accent_pressed="#0E8B6F",
-    
-    border_light="#3A3A3A",
-    border_medium="#4A4A4A",
-    
-    bubble_user="#2F2F2F",
-    bubble_assistant="#1A1A1A",
-    
-    success="#10A37F",
-    warning="#FFA500",
-    error="#EF4444"
-)
-
-# Light theme
+# Light theme (default)
 LIGHT_THEME = Theme(
     bg_primary="#FFFFFF",
     bg_secondary="#F7F7F8",
@@ -94,25 +67,38 @@ class ThemeManager:
     """Manages application theme."""
     
     def __init__(self):
-        self.current_theme = DARK_THEME
-        self.is_dark = True
+        self.current_theme = LIGHT_THEME
+        self.is_dark = False
+        self._observers = []
     
     def toggle_theme(self):
         """Toggle between light and dark theme."""
-        self.is_dark = not self.is_dark
-        self.current_theme = DARK_THEME if self.is_dark else LIGHT_THEME
+        # Only light theme available
+        pass
+    
+    def add_observer(self, callback):
+        """Add theme change observer."""
+        self._observers.append(callback)
+    
+    def _notify_observers(self):
+        """Notify all observers of theme change."""
+        for callback in self._observers:
+            callback()
     
     def get_stylesheet(self) -> str:
         """Get complete application stylesheet."""
         t = self.current_theme
         return f"""
+            * {{
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            }}
+            
             QMainWindow {{
                 background-color: {t.bg_primary};
             }}
             
             QWidget {{
                 color: {t.text_primary};
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             }}
             
             QPushButton {{
@@ -133,14 +119,15 @@ class ThemeManager:
             
             QScrollBar:vertical {{
                 background: {t.bg_primary};
-                width: 8px;
+                width: 10px;
                 border: none;
+                margin: 2px;
             }}
             
             QScrollBar::handle:vertical {{
                 background: {t.border_medium};
-                border-radius: 4px;
-                min-height: 20px;
+                border-radius: 5px;
+                min-height: 30px;
             }}
             
             QScrollBar::handle:vertical:hover {{
@@ -149,6 +136,10 @@ class ThemeManager:
             
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
                 height: 0px;
+            }}
+            
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: none;
             }}
         """
 

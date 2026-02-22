@@ -1,12 +1,25 @@
 """Modern input bar component."""
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QTextEdit, QPushButton
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt, Signal, QSize
+from PySide6.QtGui import QFont, QKeyEvent
 import qtawesome as qta
 from app.ui.theme import theme_manager
 
+class ChatInput(QTextEdit):
+    """Custom text edit with Enter key handling."""
+    
+    send_requested = Signal()
+    
+    def keyPressEvent(self, event: QKeyEvent):
+        """Handle key press events."""
+        if event.key() == Qt.Key_Return and not event.modifiers() & Qt.ShiftModifier:
+            self.send_requested.emit()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
 class InputBar(QWidget):
-    """Modern input bar with rounded text field and send button."""
+    """Modern input bar with send button."""
     
     message_sent = Signal(str)
     
@@ -23,32 +36,34 @@ class InputBar(QWidget):
         layout.setSpacing(12)
         
         # Input field
-        self.input_field = QTextEdit()
+        self.input_field = ChatInput()
         self.input_field.setPlaceholderText("Message Sonet...")
         self.input_field.setMaximumHeight(120)
         self.input_field.setMinimumHeight(52)
+        self.input_field.send_requested.connect(self._on_send)
         
         font = QFont()
         font.setPointSize(14)
         self.input_field.setFont(font)
         
         self.input_field.setStyleSheet(f"""
-            QTextEdit {{
+            ChatInput {{
                 background-color: {t.bg_input};
                 border: 1px solid {t.border_light};
                 border-radius: 12px;
                 padding: 12px 16px;
                 color: {t.text_primary};
             }}
-            QTextEdit:focus {{
+            ChatInput:focus {{
                 border: 1px solid {t.accent_primary};
             }}
         """)
+        layout.addWidget(self.input_field)
         
         # Send button
         self.send_btn = QPushButton()
         self.send_btn.setIcon(qta.icon('fa5s.arrow-up', color='#FFFFFF'))
-        self.send_btn.setIconSize(Qt.Size(18, 18))
+        self.send_btn.setIconSize(QSize(18, 18))
         self.send_btn.setFixedSize(40, 40)
         self.send_btn.setCursor(Qt.PointingHandCursor)
         self.send_btn.setToolTip("Send message")
@@ -69,8 +84,6 @@ class InputBar(QWidget):
             }}
         """)
         self.send_btn.clicked.connect(self._on_send)
-        
-        layout.addWidget(self.input_field)
         layout.addWidget(self.send_btn, alignment=Qt.AlignBottom)
         
         self.setStyleSheet(f"""

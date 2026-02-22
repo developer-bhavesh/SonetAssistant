@@ -22,7 +22,10 @@ class WebSearchService:
     def search(self, query: str, max_results: int = 8) -> tuple[str, list[str]]:
         """Search and extract content. Returns (formatted_text, source_urls)."""
         try:
-            results = self._search_duckduckgo(query, max_results)
+            # Try Google first (best for fresh results), fallback to DuckDuckGo
+            results = self._search_google(query, max_results)
+            if not results:
+                results = self._search_duckduckgo(query, max_results)
             
             if not results:
                 return "No search results found.", []
@@ -42,9 +45,50 @@ class WebSearchService:
             logger.error(f"Search error: {e}")
             return f"Search failed: {str(e)}", []
     
+    def _search_google(self, query: str, max_results: int) -> list[dict]:
+        """Search Google (best for fresh results)."""
+        try:
+            # Add time filter for recent results
+            time_query = f"{query} after:2024"
+            url = f"https://www.google.com/search?q={quote_plus(time_query)}&num={max_results}"
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            
+            response = requests.get(url, headers=headers, timeout=self.timeout)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            results = []
+            for result in soup.select('div.g')[:max_results]:
+                title_elem = result.select_one('h3')
+                link_elem = result.select_one('a')
+                snippet_elem = result.select_one('div.VwiC3b, span.aCOpRe')
+                
+                if title_elem and link_elem:
+                    url = link_elem.get('href', '')
+                    if url.startswith('/url?q='):
+                        url = url.split('/url?q=')[1].split('&')[0]
+                    
+                    if url and not url.startswith('http'):
+                        continue
+                    
+                    results.append({
+                        'title': title_elem.get_text(strip=True),
+                        'snippet': snippet_elem.get_text(strip=True) if snippet_elem else '',
+                        'url': url
+                    })
+            
+            return results
+        except Exception as e:
+            logger.error(f"Google search error: {e}")
+            return []
+    
     def _search_duckduckgo(self, query: str, max_results: int) -> list[dict]:
-        """Search DuckDuckGo."""
-        url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
+        """Search DuckDuckGo HTML."""
+        # Add time-based keywords for fresh results
+        time_query = f"{query} 2024 2025 latest recent"
+        url = f"https://html.duckduckgo.com/html/?q={quote_plus(time_query)}"
         response = requests.get(url, headers=self.headers, timeout=self.timeout)
         soup = BeautifulSoup(response.text, 'html.parser')
         
@@ -52,17 +96,29 @@ class WebSearchService:
         for result in soup.select('.result')[:max_results]:
             title = result.select_one('.result__title')
             snippet = result.select_one('.result__snippet')
-            link = result.select_one('.result__url')
+            link_elem = result.select_one('.result__url')
             
-            if title and link:
-                url = link.get('href', '')
-                if url.startswith('//'):
-                    url = 'https:' + url
+            if title and link_elem:
+                # Extract actual URL from DuckDuckGo redirect
+                url_text = link_elem.get('href', '')
+                if url_text.startswith('//duckduckgo.com/l/?uddg='):
+                    # Parse the redirect URL
+                    try:
+                        from urllib.parse import parse_qs, urlparse
+                        parsed = urlparse(url_text)
+                        actual_url = parse_qs(parsed.query).get('uddg', [''])[0]
+                        if actual_url:
+                            url_text = actual_url
+                    except:
+                        pass
+                
+                if url_text.startswith('//'):
+                    url_text = 'https:' + url_text
                 
                 results.append({
                     'title': title.get_text(strip=True),
                     'snippet': snippet.get_text(strip=True) if snippet else '',
-                    'url': url
+                    'url': url_text
                 })
         
         return results
@@ -94,57 +150,53 @@ class WebSearchService:
             return None
         
         try:
-            response = requests.get(url, headers=self.headers, timeout=self.timeout)
+            # Skip DuckDuckGo redirect URLs
+            if 'duckduckgo.com' in url:
+                return None
+            
+            response = requests.get(url, headers=self.headers, timeout=self.timeout, allow_redirects=True)
             soup = BeautifulSoup(response.text, 'html.parser')
             
             # Remove unwanted elements
             for tag in soup(['script', 'style', 'nav', 'footer', 'header', 'aside', 
-                           'iframe', 'noscript', 'svg', 'form', 'button']):
+                           'iframe', 'noscript', 'svg', 'form', 'button', 'ad']):
                 tag.decompose()
             
-            # Extract main content
+            # Extract main content with priority selectors
             main_content = (
                 soup.find('article') or 
                 soup.find('main') or 
-                soup.find('div', class_=re.compile(r'content|article|post|entry', re.I)) or
+                soup.find('div', class_=re.compile(r'content|article|post|entry|body', re.I)) or
+                soup.find('div', id=re.compile(r'content|article|main', re.I)) or
                 soup.find('body')
             )
             
             if not main_content:
                 return None
             
-            # Extract text with structure
+            # Extract text with structure - prioritize recent content
             paragraphs = []
-            for p in main_content.find_all(['p', 'h1', 'h2', 'h3', 'li']):
-                text = p.get_text(strip=True)
-                if len(text) > 30:  # Filter short fragments
+            for elem in main_content.find_all(['p', 'h1', 'h2', 'h3', 'li', 'span', 'div']):
+                text = elem.get_text(strip=True)
+                # Filter and prioritize content with dates/numbers
+                if len(text) > 30:
                     paragraphs.append(text)
             
-            # Extract code blocks
-            code_blocks = []
-            for code in main_content.find_all(['code', 'pre']):
-                code_text = code.get_text(strip=True)
-                if len(code_text) > 10:
-                    code_blocks.append(code_text)
+            # Extract tables (useful for match stats)
+            tables = []
+            for table in main_content.find_all('table')[:2]:
+                table_text = table.get_text(separator=' | ', strip=True)
+                if len(table_text) > 20:
+                    tables.append(table_text[:500])
             
             # Combine content
             full_text = ' '.join(paragraphs)
-            
-            # Extract key links for recursive search (depth 1 only)
-            related_content = []
-            if depth == 0:
-                for link in main_content.find_all('a', href=True)[:3]:
-                    link_url = urljoin(url, link['href'])
-                    if self._is_valid_url(link_url, url):
-                        sub_content = self._extract_content_recursive(link_url, link.get_text(strip=True), depth + 1)
-                        if sub_content:
-                            related_content.append(sub_content['text'][:500])
+            if tables:
+                full_text += '\n\nTABLE DATA: ' + ' '.join(tables)
             
             return {
                 'title': title,
-                'text': full_text[:3000],
-                'code': code_blocks[:2] if code_blocks else [],
-                'related': related_content,
+                'text': full_text[:4000],  # Increased limit for more context
                 'url': url
             }
             
@@ -173,25 +225,35 @@ class WebSearchService:
     
     def _format_for_ai(self, query: str, results: list[dict], contents: dict[str, dict]) -> str:
         """Format search results as supplementary information for AI."""
+        from datetime import datetime
+        current_date = datetime.now().strftime("%B %d, %Y")
+        
         output = f"USER QUESTION: {query}\n\n"
-        output += "IMPORTANT: Below is CURRENT web data to answer the question above.\n"
-        output += "Read this information carefully and use it in your answer.\n\n"
+        output += f"TODAY'S DATE: {current_date}\n\n"
+        output += "CONTEXT: Below is web data scraped from search results.\n"
+        output += "CRITICAL INSTRUCTIONS:\n"
+        output += "1. ONLY use information explicitly stated in the context below\n"
+        output += "2. DO NOT invent, assume, or hallucinate ANY information\n"
+        output += "3. If the context lacks recent/accurate data, say: 'The available sources do not contain current information'\n"
+        output += "4. DO NOT make up dates, scores, match details, or events\n"
+        output += "5. If information seems outdated or contradictory, acknowledge it\n\n"
         
         # Provide web content
         for i, result in enumerate(results[:5], 1):
-            output += f"=== WEB SOURCE {i}: {result['title']} ===\n"
+            output += f"--- Source: {result['title']} ---\n"
             
             if result['url'] in contents:
                 content = contents[result['url']]
-                output += f"{content['text'][:2000]}\n\n"
-                
-                if content.get('code'):
-                    output += f"CODE:\n{content['code'][0][:400]}\n\n"
+                output += f"{content['text'][:3000]}\n\n"
             else:
                 output += f"{result['snippet']}\n\n"
         
-        output += "\n=== END OF WEB DATA ===\n\n"
-        output += f"Now answer the question: {query}\n"
-        output += "Use the web information above. Include specific details from the sources.\n"
+        output += "\n--- END OF CONTEXT ---\n\n"
+        output += f"Answer: {query}\n\n"
+        output += "RESPONSE RULES:\n"
+        output += "- If context has the answer: Provide it naturally with specific details\n"
+        output += "- If context is outdated: Say 'Based on available sources from [date/period], ...' and suggest checking official sites\n"
+        output += "- If context lacks info: Say 'I cannot find current information in the available sources. Please check [official sites]'\n"
+        output += "- NEVER invent information not in the context\n"
         
         return output

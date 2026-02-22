@@ -51,3 +51,5 @@ chat_history/
 *.md
 *.desktop
 run.sh
+requirements_voice_cloning.txt
+.gitignore

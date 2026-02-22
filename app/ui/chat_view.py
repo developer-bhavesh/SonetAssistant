@@ -1,6 +1,6 @@
 """Modern chat view component."""
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QLabel
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from app.ui.message_bubble import MessageBubble
 from app.ui.theme import theme_manager
@@ -8,6 +8,8 @@ from app.models import Message, MessageRole
 
 class ChatView(QWidget):
     """Modern chat view with messages."""
+    
+    speak_requested = Signal(str)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -36,6 +38,7 @@ class ChatView(QWidget):
         
         # Messages container
         self.messages_container = QWidget()
+        self.messages_container.setStyleSheet(f"background-color: {t.bg_primary};")
         self.messages_layout = QVBoxLayout(self.messages_container)
         self.messages_layout.setContentsMargins(24, 24, 24, 24)
         self.messages_layout.setSpacing(16)
@@ -45,11 +48,20 @@ class ChatView(QWidget):
         layout.addWidget(scroll)
         
         self.scroll_area = scroll
+        
+        # Empty state
+        self._show_empty_state()
     
     def add_message(self, message: Message):
         """Add message to chat."""
         if message.role in (MessageRole.USER, MessageRole.ASSISTANT):
+            self._hide_empty_state()
             bubble = MessageBubble(message)
+            
+            # Connect speak signal
+            if message.role == MessageRole.ASSISTANT:
+                bubble.speak_requested.connect(self.speak_requested.emit)
+            
             self.messages_layout.insertWidget(
                 self.messages_layout.count() - 1,
                 bubble
@@ -91,6 +103,45 @@ class ChatView(QWidget):
             if item.widget():
                 item.widget().deleteLater()
         self.hide_loading()
+        self._show_empty_state()
+    
+    def _show_empty_state(self):
+        """Show empty state message."""
+        t = theme_manager.current_theme
+        
+        if not hasattr(self, 'empty_label') or self.empty_label is None:
+            self.empty_label = QLabel("How can I help you today?")
+            font = QFont()
+            font.setPointSize(20)
+            font.setWeight(QFont.DemiBold)
+            self.empty_label.setFont(font)
+            self.empty_label.setAlignment(Qt.AlignCenter)
+        
+        self.empty_label.setStyleSheet(f"color: {t.text_secondary};")
+        
+        try:
+            if self.empty_label.parent() is None:
+                self.messages_layout.insertWidget(0, self.empty_label)
+        except RuntimeError:
+            self.empty_label = QLabel("How can I help you today?")
+            font = QFont()
+            font.setPointSize(20)
+            font.setWeight(QFont.DemiBold)
+            self.empty_label.setFont(font)
+            self.empty_label.setAlignment(Qt.AlignCenter)
+            self.empty_label.setStyleSheet(f"color: {t.text_secondary};")
+            self.messages_layout.insertWidget(0, self.empty_label)
+    
+    def _hide_empty_state(self):
+        """Hide empty state message."""
+        if hasattr(self, 'empty_label') and self.empty_label is not None:
+            try:
+                if self.empty_label.parent():
+                    self.messages_layout.removeWidget(self.empty_label)
+                    self.empty_label.setParent(None)
+            except RuntimeError:
+                pass
+            self.empty_label = None
     
     def _scroll_to_bottom(self):
         """Scroll to bottom."""

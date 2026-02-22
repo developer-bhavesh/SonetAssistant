@@ -37,6 +37,12 @@ class Config:
     WINDOW_WIDTH: int = int(os.getenv("WINDOW_WIDTH", "1200"))
     WINDOW_HEIGHT: int = int(os.getenv("WINDOW_HEIGHT", "800"))
     
+    # TTS Configuration
+    TTS_ENABLED: bool = os.getenv("TTS_ENABLED", "true").lower() == "true"
+    TTS_MODEL: str = os.getenv("TTS_MODEL", str(Path.home() / ".local/share/piper/voices/en_US-lessac-medium.onnx"))
+    TTS_CONFIG: str = os.getenv("TTS_CONFIG", str(Path.home() / ".local/share/piper/voices/en_US-lessac-medium.onnx.json"))
+    TTS_VOLUME: float = float(os.getenv("TTS_VOLUME", "0.8"))
+    
     # System Prompt
     SYSTEM_PROMPT: str = """You are Sonet, a helpful AI assistant.
 
