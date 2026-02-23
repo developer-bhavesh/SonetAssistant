@@ -147,3 +147,7 @@ class ChatView(QWidget):
         """Scroll to bottom."""
         scrollbar = self.scroll_area.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+    
+    def scroll_to_bottom(self):
+        """Public method to scroll to bottom."""
+        self._scroll_to_bottom()

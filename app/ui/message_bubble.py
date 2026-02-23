@@ -1,8 +1,9 @@
 """Modern message bubble component."""
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QHBoxLayout, QPushButton, QApplication, QSizePolicy
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QHBoxLayout, QPushButton, QApplication, QSizePolicy, QTextEdit
 from PySide6.QtCore import Qt, QSize, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QSyntaxHighlighter, QTextCharFormat, QColor
 import qtawesome as qta
+import re
 from app.models import Message, MessageRole
 from app.ui.theme import theme_manager
 

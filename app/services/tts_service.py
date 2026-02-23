@@ -3,6 +3,8 @@ import subprocess
 import tempfile
 import logging
 import re
+import queue
+import threading
 from pathlib import Path
 from typing import Optional
 from PySide6.QtCore import QObject, Signal, QRunnable, QThreadPool
@@ -24,8 +26,8 @@ class TTSWorker(QRunnable):
         self.model_path = model_path
         self.config_path = config_path
         self.volume = volume
-        self.length_scale = 1.0   # Normal speed for clarity
-        self.noise_scale = 0.667  # Natural expressiveness
+        self.length_scale = 0.9   # Slightly faster for live feel
+        self.noise_scale = 0.667
         self.signals = self.Signals()
         self.setAutoDelete(True)
     
@@ -34,40 +36,41 @@ class TTSWorker(QRunnable):
         try:
             self.signals.started.emit()
             
-            # Create temporary WAV file
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
-                output_path = tmp.name
-            
-            # Build Piper command
-            cmd = [
+            # Stream directly to aplay (no temp file)
+            piper_cmd = [
                 'piper-tts',
                 '-m', self.model_path,
                 '-c', self.config_path,
-                '-f', output_path,
+                '--output-raw',
                 '--length-scale', str(self.length_scale),
                 '--noise-scale', str(self.noise_scale)
             ]
             
-            # Run Piper TTS
-            process = subprocess.Popen(
-                cmd,
+            aplay_cmd = ['aplay', '-r', '22050', '-f', 'S16_LE', '-t', 'raw', '-q']
+            
+            # Pipe piper output directly to aplay
+            piper = subprocess.Popen(
+                piper_cmd,
                 stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=False
             )
             
-            _, stderr = process.communicate(input=self.text, timeout=60)
+            aplay = subprocess.Popen(
+                aplay_cmd,
+                stdin=piper.stdout,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
             
-            if process.returncode != 0:
-                raise RuntimeError(f"Piper failed: {stderr}")
+            # Send text to piper
+            piper.stdin.write(self.text.encode('utf-8'))
+            piper.stdin.close()
             
-            # Play audio
-            subprocess.run(['aplay', '-q', output_path], 
-                         check=True, capture_output=True, timeout=120)
-            
-            # Cleanup
-            Path(output_path).unlink(missing_ok=True)
+            # Wait for completion
+            piper.wait(timeout=60)
+            aplay.wait(timeout=60)
             
             self.signals.finished.emit()
             

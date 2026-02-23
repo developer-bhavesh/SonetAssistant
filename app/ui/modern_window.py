@@ -149,17 +149,33 @@ class ModernMainWindow(QMainWindow):
         self.sidebar.history_layout.removeWidget(widget)
         widget.deleteLater()
     
+    def _needs_web_search(self, text: str) -> bool:
+        """Detect if query needs current information."""
+        text_lower = text.lower()
+        
+        # Time indicators
+        time_words = ['latest', 'recent', 'today', 'current', 'now', '2024', '2025', '2026',
+                     'this week', 'this month', 'this year', 'yesterday']
+        
+        # Real-time topics
+        realtime = ['match', 'score', 'game', 'vs', 'versus', 'news', 'weather', 
+                   'stock', 'price', 'live', 'result', 'winner', 'update']
+        
+        # Check if needs search
+        has_time = any(word in text_lower for word in time_words)
+        has_realtime = any(word in text_lower for word in realtime)
+        
+        return has_time or has_realtime
+    
     def _on_message_sent(self, text: str):
         """Handle message sent."""
-        # Auto-search detection
-        search_keywords = ['how to', 'what is', 'explain', 'latest', 'newest', 'recent']
-        needs_search = any(kw in text.lower() for kw in search_keywords)
-        
+        # Explicit search command
         if text.startswith('/search '):
             self._handle_search(text[8:].strip())
             return
         
-        if needs_search and '?' in text:
+        # Auto-detect if needs current info
+        if self._needs_web_search(text):
             self._handle_search(text)
             return
         
@@ -221,15 +237,15 @@ class ModernMainWindow(QMainWindow):
                     links.append(f"[link]({url})")
             processed_response += " • ".join(links)
         
+        # Add message to state FIRST (will trigger UI update via signal)
+        self.state_manager.add_message(MessageRole.ASSISTANT, processed_response)
+        
         # Store interaction in memory
         last_user_msg = next((m.content for m in reversed(self.state_manager.current_session.messages) if m.role == MessageRole.USER), "")
         self.user_memory.extract_and_store(last_user_msg, processed_response)
         
-        # Speak response
+        # Speak response AFTER text appears
         self.tts_service.speak(processed_response)
-        
-        # Add message to state (will trigger UI update via signal)
-        self.state_manager.add_message(MessageRole.ASSISTANT, processed_response)
         self.state_manager.clear_search_context()
         
         # Save session after each response
@@ -255,6 +271,7 @@ class ModernMainWindow(QMainWindow):
                     return  # Already in UI
         
         self.chat_view.add_message(message)
+        self.chat_view.scroll_to_bottom()
     
     def _on_state_cleared(self):
         """Handle state cleared."""

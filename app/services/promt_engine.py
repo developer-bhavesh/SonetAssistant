@@ -14,8 +14,12 @@ class PromptEngine:
     
     def build_messages(self, conversation: list[Message]) -> list[Message]:
         """Build complete message list with system prompt, memory, and tools."""
-        # Build enhanced system prompt
-        enhanced_prompt = self.system_prompt
+        from datetime import datetime
+        
+        # Build enhanced system prompt with current date/time
+        now = datetime.now()
+        datetime_context = f"\n\nCurrent Date & Time: {now.strftime('%A, %B %d, %Y at %I:%M %p')}\nYear: {now.year}\n"
+        enhanced_prompt = self.system_prompt + datetime_context
         
         # Add user memory context
         if self.user_memory:
